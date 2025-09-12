@@ -1,0 +1,75 @@
+name: Run Snowflake Migrations
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'preprodconnection'
+        type: choice
+        options:
+          - preprodconnection
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      CONNECTION_NAME: ${{ github.event.inputs.environment || 'preprodconnection' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v2.0
+        with:
+          default-config-file-path: ".snowflake/config.toml"
+
+      - name: Run migration scripts and track executed
+        id: migrations
+        env:
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_AUTHENTICATOR: SNOWFLAKE_JWT
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_AUTHENTICATOR: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_AUTHENTICATOR }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_USER: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_USER }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_ACCOUNT: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_ACCOUNT }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_PRIVATE_KEY_RAW: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_PRIVATE_KEY_RAW }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_DATABASE: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_DATABASE }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_WAREHOUSE: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_WAREHOUSE }}
+        run: |
+          set -e
+          > executed_migrations.txt
+          for dir in $(ls -d migration-scripts/v* | sort); do
+            for file in $dir/*.sql; do
+              echo "Running $file"
+              if snowcli sql execute -f $file --connection $CONNECTION_NAME; then
+                echo "$dir" >> executed_migrations.txt
+              else
+                echo "Migration failed at $file"
+                exit 1
+              fi
+            done
+          done
+
+      - name: Run rollback scripts for executed migrations if migration fails
+        if: failure()
+        env:
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_AUTHENTICATOR: SNOWFLAKE_JWT
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_AUTHENTICATOR: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_AUTHENTICATOR }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_USER: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_USER }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_ACCOUNT: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_ACCOUNT }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_PRIVATE_KEY_RAW: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_PRIVATE_KEY_RAW }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_DATABASE: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_DATABASE }}
+          SNOWFLAKE_CONNECTIONS_MYCONNECTION_WAREHOUSE: ${{ secrets.SNOWFLAKE_CONNECTIONS_MYCONNECTION_WAREHOUSE }}
+        run: |
+          echo "Migration failed. Rolling back executed migrations..."
+          if [ -f executed_migrations.txt ]; then
+            tac executed_migrations.txt | uniq | while read dir; do
+              if [ -f "$dir/rollback.sql" ]; then
+                echo "Rolling back $dir"
+                snowcli sql execute -f "$dir/rollback.sql" --connection $CONNECTION_NAME
+              fi
+            done
+          fi
