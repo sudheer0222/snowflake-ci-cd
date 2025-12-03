@@ -3,6 +3,9 @@ name: Snowflake Private Key
 on:
   workflow_dispatch:
 
+  push:
+    branches: [ main , pipeline ]
+
 permissions:
   id-token: write
   contents: read
