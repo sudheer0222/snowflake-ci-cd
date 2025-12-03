@@ -1,0 +1,112 @@
+name: Snowflake Private Key
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  snow-connection-test:
+    runs-on: ubuntu-latest
+
+    # env:
+    #   SNOWFLAKE_CONNECTIONS_PREPROD_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+    #   SNOWFLAKE_CONNECTIONS_PREPROD_USER: ${{ secrets.SNOWFLAKE_USER }}
+    #   SNOWFLAKE_CONNECTIONS_PREPROD_AUTHENTICATOR: WORKLOAD_IDENTITY
+    #   SNOWFLAKE_CONNECTIONS_PREPROD_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+    #   SNOWFLAKE_CONNECTIONS_PREPROD_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+    #   SNOWFLAKE_CONNECTIONS_PREPROD_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v39
+        with:
+          separator: "\n"
+
+      - name: Set up Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v2.0
+        with:
+          cli-version: "3.12.0"
+          use-oidc: true
+          default-config-file-path: ".snowflake/config.toml"
+
+      - name: Test the Snowflake CLI connectivity
+        run: |
+
+      # ----------------------------
+      # DRY RUN: list changed SQL files under database_objects
+      # ordered by numeric folder prefix (01_, 02_, ..., 99_)
+      # ----------------------------
+      - name: DRY RUN - list ordered SQL files under database_objects
+        run: |
+          echo "Collecting changed SQL files under database_objects/ (DRY RUN)..."
+          IFS=$'\n'
+
+          MODIFIED_FILES="${{ steps.changed-files.outputs.modified_files }}"
+          ADDED_FILES="${{ steps.changed-files.outputs.added_files }}"
+
+          # Combine modified + added into one list and de-duplicate
+          ALL_CHANGED_FILES=$(printf "%s\n%s\n" "$MODIFIED_FILES" "$ADDED_FILES" | sort -u)
+
+          if [ -z "$ALL_CHANGED_FILES" ]; then
+            echo "No changed files detected."
+            exit 0
+          fi
+
+          echo "All changed files:"
+          echo "$ALL_CHANGED_FILES"
+          echo
+
+          # Filter to .sql files under database_objects/
+          CHANGED_SQL_FILES=$(echo "$ALL_CHANGED_FILES" \
+            | grep '^database_objects/.*\.sql$' || true)
+
+          if [ -z "$CHANGED_SQL_FILES" ]; then
+            echo "No changed .sql files under database_objects/."
+            exit 0
+          fi
+
+          echo "Changed .sql files under database_objects/:"
+          echo "$CHANGED_SQL_FILES"
+          echo
+
+          # Build a sortable list: "<prefix_number>\t<folder>\t<full_path>"
+          ORDERED_LIST=""
+          while IFS= read -r file; do
+            # file looks like: database_objects/01_schemas/foo.sql
+            rel="${file#database_objects/}"          # 01_schemas/foo.sql
+            folder="${rel%%/*}"                      # 01_schemas
+            # extract leading digits as prefix (e.g., 01, 2, 99)
+            prefix_digits=$(echo "$folder" | sed -E 's/^([0-9]+).*/\1/')
+            # if no digits, treat as 999 to push to the end
+            if [ -z "$prefix_digits" ]; then
+              prefix_digits=999
+            fi
+            ORDERED_LIST+="${prefix_digits}\t${folder}\t${file}\n"
+          done <<< "$CHANGED_SQL_FILES"
+
+          # Sort by numeric prefix, then by folder name, then by full path
+          # -n = numeric sort on first field
+          # -k2,2 and -k3,3 are string sorts within equal prefixes
+          SORTED=$(printf "%b" "$ORDERED_LIST" | sort -t $'\t' -k1,1n -k2,2 -k3,3)
+
+          echo "DRY RUN - SQL files that would be executed in this order:"
+          echo "---------------------------------------------------------"
+          echo "$SORTED" | awk -F'\t' '{print $3}'
+            fi
+          done
+
+      - name: Print changed files summary
+        run: |
+          echo "Modified files: ${{ steps.changed-files.outputs.modified_files }}"
+          echo "Added files: ${{ steps.changed-files.outputs.added_files }}"
