@@ -2,3 +2,7 @@
 create or alter table DEV_DB.IPM.TEST_TB1
 (
     NUM NUMBER, NAME_F VARCHAR(100));
+
+create or alter table DEV_DB.IPM.TEST_TB2
+(
+    NUM NUMBER, NAME_F VARCHAR(100));
