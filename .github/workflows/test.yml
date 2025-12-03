@@ -70,24 +70,24 @@ jobs:
           echo "$ALL_CHANGED_FILES"
           echo
 
-          # Filter to .sql files under database_objects/
+          # Filter to .sql files under Database_objects/
           CHANGED_SQL_FILES=$(echo "$ALL_CHANGED_FILES" \
-            | grep '^database_objects/.*\.sql$' || true)
+            | grep '^Database_objects/.*\.sql$' || true)
 
           if [ -z "$CHANGED_SQL_FILES" ]; then
-            echo "No changed .sql files under database_objects/."
+            echo "No changed .sql files under Database_objects/."
             exit 0
           fi
 
-          echo "Changed .sql files under database_objects/:"
+          echo "Changed .sql files under Database_objects/:"
           echo "$CHANGED_SQL_FILES"
           echo
 
           # Build a sortable list: "<prefix_number>\t<folder>\t<full_path>"
           ORDERED_LIST=""
           while IFS= read -r file; do
-            # file looks like: database_objects/01_schemas/foo.sql
-            rel="${file#database_objects/}"          # 01_schemas/foo.sql
+            # file looks like: Database_objects/01_schemas/foo.sql
+            rel="${file#Database_objects/}"          # 01_schemas/foo.sql
             folder="${rel%%/*}"                      # 01_schemas
             # extract leading digits as prefix (e.g., 01, 2, 99)
             prefix_digits=$(echo "$folder" | sed -E 's/^([0-9]+).*/\1/')
