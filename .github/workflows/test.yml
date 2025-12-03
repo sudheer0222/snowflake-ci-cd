@@ -36,23 +36,10 @@ jobs:
         with:
           separator: "\n"
 
-      # - name: Set up Snowflake CLI
-      #   uses: snowflakedb/snowflake-cli-action@v2.0
-      #   with:
-      #     cli-version: "3.12.0"
-      #     use-oidc: true
-      #     default-config-file-path: ".snowflake/config.toml"
-
-      - name: Test the Snowflake CLI connectivity
+      # DRY RUN + EXECUTION: ordered SQL files under Database_objects
+      - name: Execute ordered SQL files under database_objects
         run: |
-
-      # ----------------------------
-      # DRY RUN: list changed SQL files under database_objects
-      # ordered by numeric folder prefix (01_, 02_, ..., 99_)
-      # ----------------------------
-      - name: DRY RUN - list ordered SQL files under database_objects
-        run: |
-          echo "Collecting changed SQL files under database_objects/ (DRY RUN)..."
+          echo "Collecting changed SQL files under database_objects/..."
           IFS=$'\n'
 
           MODIFIED_FILES="${{ steps.changed-files.outputs.modified_files }}"
@@ -103,16 +90,23 @@ jobs:
           # -k2,2 and -k3,3 are string sorts within equal prefixes
           SORTED=$(printf "%b" "$ORDERED_LIST" | sort -t $'\t' -k1,1n -k2,2 -k3,3)
 
-          echo "DRY RUN - SQL files that would be executed in this order:"
+          echo "SQL files will be executed in this order:"
           echo "---------------------------------------------------------"
-          # Print detailed sorted entries: prefix, folder, and path
+          # Print detailed sorted entries: prefix, folder, and path (for verification)
           echo "[DEBUG] Sorted entries (prefix, folder, path):"
           echo "$SORTED" | awk -F'\t' '{printf "prefix=%s folder=%s path=%s\n", $1, $2, $3}'
 
-          # Final order of execution (paths only)
           echo
           echo "Order of execution (paths only):"
           echo "$SORTED" | awk -F'\t' '{print $3}'
+
+          echo
+          echo "--- Executing SQL files in the above order ---"
+          # Execute each SQL file using SnowSQL CLI; make sure snowsql is available
+          echo "$SORTED" | while IFS=$'\t' read -r prefix folder path; do
+            echo "Running: $path"
+            snowsql -f "$path" || { echo "Execution failed for $path"; exit 1; }
+          done
 
       - name: Print changed files summary
         run: |
